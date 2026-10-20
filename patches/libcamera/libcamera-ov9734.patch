@@ -1,0 +1,36 @@
+diff --git i/src/ipa/libipa/camera_sensor_helper.cpp w/src/ipa/libipa/camera_sensor_helper.cpp
+index 9457d62..6e89e88 100644
+--- i/src/ipa/libipa/camera_sensor_helper.cpp
++++ w/src/ipa/libipa/camera_sensor_helper.cpp
+@@ -817,6 +817,17 @@ public:
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("ov8865", CameraSensorHelperOv8865)
+ 
++class CameraSensorHelperOv9734 : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperOv9734()
++	{
++		blackLevel_ = 64;
++		gain_ = AnalogueGainLinear{ 1, 0, 0, 16 };
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("ov9734", CameraSensorHelperOv9734)
++
+ class CameraSensorHelperOv13858 : public CameraSensorHelper
+ {
+ public:
+diff --git i/src/libcamera/pipeline/ipu3/ipu3.cpp w/src/libcamera/pipeline/ipu3/ipu3.cpp
+index 0f3e169..8b49502 100644
+--- i/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ w/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -728,7 +728,8 @@ int PipelineHandlerIPU3::start(Camera *camera, [[maybe_unused]] const ControlLis
+ 	/* Disable test pattern mode on the sensor, if any. */
+ 	ret = cio2->sensor()->setTestPatternMode(
+ 		controls::draft::TestPatternModeEnum::TestPatternModeOff);
+-	if (ret)
++	/* -EINVAL means the sensor has no test pattern support; that's fine. */
++	if (ret && ret != -EINVAL)
+ 		return ret;
+ 
+ 	/* Allocate buffers for internal pipeline usage. */
