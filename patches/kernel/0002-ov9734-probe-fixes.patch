@@ -1,5 +1,5 @@
 --- ov9734.c	2026-10-20 21:33:13.300497953 +0800
-+++ ov9734.c	2026-10-20 21:33:13.322021047 +0800
++++ ov9734.c	2026-10-21 09:20:52.994437978 +0800
 @@ -5,6 +5,7 @@
  #include <linux/clk.h>
  #include <linux/delay.h>
@@ -8,7 +8,36 @@
  #include <linux/module.h>
  #include <linux/pm_runtime.h>
  #include <linux/unaligned.h>
-@@ -838,7 +839,8 @@
+@@ -325,6 +326,7 @@
+ struct ov9734 {
+ 	struct device *dev;
+ 	struct clk *clk;
++	struct gpio_desc *reset_gpio;
+ 
+ 	struct v4l2_subdev sd;
+ 	struct media_pad pad;
+@@ -616,6 +618,20 @@
+ 	const struct ov9734_reg_list *reg_list;
+ 	int link_freq_index, ret;
+ 
++	/*
++	 * On Surface Laptop 3 the sensor can get stuck (black frames) after
++	 * a number of stream start/stop cycles if it is not reset. Pulse the
++	 * reset line (assert, then deassert) on every stream start. The line
++	 * is active-low, so logical 1 asserts (physical low) and logical 0
++	 * deasserts (physical high).
++	 */
++	if (ov9734->reset_gpio) {
++		gpiod_set_value_cansleep(ov9734->reset_gpio, 1);
++		msleep(2);
++		gpiod_set_value_cansleep(ov9734->reset_gpio, 0);
++		msleep(20);
++	}
++
+ 	link_freq_index = ov9734->cur_mode->link_freq_index;
+ 	reg_list = &link_freq_configs[link_freq_index].reg_list;
+ 	ret = ov9734_write_reg_list(ov9734, reg_list);
+@@ -838,7 +854,8 @@
  
  	ep = fwnode_graph_get_next_endpoint(fwnode, NULL);
  	if (!ep)
@@ -18,7 +47,7 @@
  
  	ret = v4l2_fwnode_endpoint_alloc_parse(ep, &bus_cfg);
  	fwnode_handle_put(ep);
-@@ -883,11 +885,13 @@
+@@ -883,6 +900,7 @@
  	pm_runtime_disable(ov9734->dev);
  	pm_runtime_set_suspended(ov9734->dev);
  	mutex_destroy(&ov9734->mutex);
@@ -26,13 +55,7 @@
  }
  
  static int ov9734_probe(struct i2c_client *client)
- {
- 	struct ov9734 *ov9734;
-+	struct gpio_desc *reset_gpio;
- 	unsigned long freq;
- 	int ret;
- 
-@@ -915,10 +919,34 @@
+@@ -915,10 +933,35 @@
  				     "external clock %lu is not supported",
  				     freq);
  
@@ -42,9 +65,10 @@
 +	 * held in reset until its reset line (active-low) is deasserted.
 +	 * GPIOD_OUT_LOW drives the line physically high (deasserted).
 +	 */
-+	reset_gpio = devm_gpiod_get_optional(ov9734->dev, "reset", GPIOD_OUT_LOW);
-+	if (IS_ERR(reset_gpio))
-+		return dev_err_probe(ov9734->dev, PTR_ERR(reset_gpio),
++	ov9734->reset_gpio = devm_gpiod_get_optional(ov9734->dev, "reset",
++						     GPIOD_OUT_LOW);
++	if (IS_ERR(ov9734->reset_gpio))
++		return dev_err_probe(ov9734->dev, PTR_ERR(ov9734->reset_gpio),
 +				     "failed to get reset GPIO\n");
 +
 +	/*
@@ -67,7 +91,7 @@
  		return ret;
  	}
  
-@@ -962,6 +990,7 @@
+@@ -962,6 +1005,7 @@
  	pm_runtime_disable(ov9734->dev);
  	pm_runtime_set_suspended(ov9734->dev);
  	media_entity_cleanup(&ov9734->sd.entity);

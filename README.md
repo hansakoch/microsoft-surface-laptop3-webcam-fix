@@ -87,7 +87,10 @@ log for "Device or resource busy" — something else is holding the media device
    stays asserted and the MCLK (19.2 MHz via `INT3472:00-clk`) is never enabled —
    so the chip-ID read returned `-EREMOTEIO`. The fix deasserts reset and enables
    the clock, plus a 50 ms settling delay (the OV9734 will not ACK I2C
-   immediately after MCLK starts).
+   immediately after MCLK starts). The driver also **pulses the reset line on
+   every stream start**, because after several stream start/stop cycles the
+   sensor can otherwise get stuck producing black frames (verified: a re-probe
+   does not wake it — only a reset low->high transition does).
 
 4. **libcamera had no OV9734 sensor helper.** The IPU3 IPA refuses to initialize
    without a `CameraSensorHelper` for the sensor model. Added one
