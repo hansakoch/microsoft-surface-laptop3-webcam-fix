@@ -1,0 +1,49 @@
+diff --git a/spa/plugins/libcamera/libcamera-source.cpp b/spa/plugins/libcamera/libcamera-source.cpp
+index a9095d4..61ea035 100644
+--- a/spa/plugins/libcamera/libcamera-source.cpp
++++ b/spa/plugins/libcamera/libcamera-source.cpp
+@@ -596,6 +596,29 @@ next_fmt:
+ 	}
+ 	port->size_index++;
+ 
++	/*
++	 * Validate the candidate size against the camera configuration.
++	 * libcamera pipelines may clamp or align the requested size during
++	 * validate(), so the size actually produced can differ from the
++	 * advisory size reported by StreamFormats::sizes(). Advertise the
++	 * validated size so consumers (e.g. Chromium) allocate buffers of
++	 * the correct dimensions. Without this, Chromium's strict buffer
++	 * size check fails and its video capture service crashes.
++	 */
++	if (sizeRange.hStep == 0 && sizeRange.vStep == 0) {
++		StreamConfiguration &sc = impl->config->at(0);
++		PixelFormat origPix = sc.pixelFormat;
++		Size origSize = sc.size;
++		sc.pixelFormat = info->pix;
++		sc.size = frameSize;
++		CameraConfiguration::Status status = impl->config->validate();
++		if (status != CameraConfiguration::Invalid)
++			frameSize = sc.size;
++		sc.pixelFormat = origPix;
++		sc.size = origSize;
++		impl->config->validate();
++	}
++
+ 	spa_pod_builder_init(&b, buffer, sizeof(buffer));
+ 	spa_pod_builder_push_object(&b, &f[0], SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat);
+ 	spa_pod_builder_add(&b,
+@@ -634,6 +657,14 @@ next_fmt:
+ 		spa_pod_builder_rectangle(&b, frameSize.width, frameSize.height);
+ 	}
+ 
++	/*
++	 * Emit a framerate so that clients (e.g. Chromium's camera factory)
++	 * can enumerate this camera. libcamera does not expose the frame rate
++	 * in the StreamConfiguration, so use the standard 30 fps.
++	 */
++	spa_pod_builder_prop(&b, SPA_FORMAT_VIDEO_framerate, 0);
++	spa_pod_builder_fraction(&b, 30, 1);
++
+ 	if (streamConfig.colorSpace) {
+ 		auto colorimetry = color_space_to_colorimetry(*streamConfig.colorSpace);
+ 

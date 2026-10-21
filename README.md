@@ -18,8 +18,10 @@ a fully registered libcamera camera, streams at ~30 fps, and works in browsers
 | `patches/kernel/0001-ipu-bridge-add-ovti9734.patch` | Kernel (media) | Adds `OVTI9734` to `ipu-bridge`'s supported-sensor table (180 MHz link freq) so the CIO2 graph connects the sensor |
 | `patches/kernel/0002-ov9734-probe-fixes.patch` | Kernel (sensor) | ov9734 driver: defer probe until the fwnode endpoint exists, deassert the reset GPIO, enable MCLK + 50 ms settling delay before the chip-ID read |
 | `patches/libcamera/libcamera-ov9734.patch` | Userspace | Adds the OV9734 `CameraSensorHelper` (gain model) and tolerates sensors without test-pattern support in the IPU3 pipeline |
+| `patches/pipewire/pipewire-libcamera-plugin.patch` | Pipewire SPA | Adds framerate to `EnumFormat` and advertises the *validated* (actually delivered) sizes — required for Chromium to enumerate and stream without crashing |
 | `scripts/build-kernel-modules.sh` | Build | Builds + installs both kernel modules for the running kernel |
 | `scripts/build-libcamera.sh` | Build | Builds + installs libcamera 0.7.2 into `/usr/local` |
+| `scripts/build-pipewire-plugin.sh` | Build | Builds + installs the patched pipewire libcamera SPA plugin |
 
 ---
 
@@ -53,19 +55,31 @@ dd if=/tmp/f.bin of=/tmp/f.raw bs=1351680 skip=7 count=1
 ffmpeg -f rawvideo -pixel_format nv12 -video_size 1280x704 -i /tmp/f.raw /tmp/webcam.png
 ```
 
-### Browser / video-call support (pipewire)
+### Browser / video-call support (pipewire + Chromium)
 
 ```sh
-sudo pacman -S pipewire-libcamera   # the libcamera SPA plugin
+# 1. Build + install the patched pipewire libcamera SPA plugin
+./scripts/build-pipewire-plugin.sh
+
+# 2. Enable Chromium's pipewire camera backend. WITHOUT this Chromium only
+#    enumerates V4L2 devices (the IPU3 camera exposes none) and reports
+#    "Could not find a web camera".
+#    NOTE: merge it into any existing --enable-features line as a single
+#    comma-separated flag — Chromium only honours the LAST --enable-features,
+#    so a second --enable-features=... would override the first.
+echo '--enable-features=WebRtcPipeWireCamera' >> ~/.config/chromium-flags.conf
+
+# 3. Verify the camera is a pipewire Video/Source node:
+systemctl --user restart pipewire
 systemctl --user restart wireplumber
-# The camera appears as a Video/Source node:
 pw-dump | grep libcamera_input
 ```
 
+Then (re)start Chromium and test at https://webcamtests.com — the camera
+should appear and stream at 1280x704@30fps.
+
 **Important:** only one consumer can use the camera at a time. Close `cam` /
-`qcam` before using a browser. (The browser path is in place; the camera node is
-exposed to pipewire. If your browser still shows no camera, check the wireplumber
-log for "Device or resource busy" — something else is holding the media device.)
+`qcam` before using a browser.
 
 ---
 
@@ -97,12 +111,36 @@ log for "Device or resource busy" — something else is holding the media device
    (`gain_ = AnalogueGainLinear{ 1, 0, 0, 16 }` — the OV9734's 16-bit gain
    register at 0x350A, 1x = 16). Also fixed the IPU3 pipeline returning a hard
    error when the sensor has no test-pattern support (the start path calls
-   `setTestPatternMode(Off)` unconditionally).
+   `setTestPatternMode(Off)` unconditionally), and an unsigned underflow in the
+   IPU3 ImgU size calculation that crashed `std::clamp` for 640x480 streams.
+
+5. **pipewire's libcamera plugin omitted the framerate** from its `EnumFormat`
+   params. Chromium's WebRTC pipewire camera factory requires a framerate to
+   enumerate the device; gstreamer does not — which is why `gst-launch` worked
+   but the browser showed "no web camera". Added `SPA_FORMAT_VIDEO_framerate`
+   (30/1) to every format.
+
+6. **Chromium's pipewire camera is off by default.** Chromium only uses its
+   pipewire camera backend when `--enable-features=WebRtcPipeWireCamera` is set;
+   otherwise it enumerates V4L2 devices only (of which the IPU3 exposes none).
+   This must also be merged into any existing `--enable-features` line, because
+   Chromium honours only the *last* such flag.
+
+7. **The plugin advertised 1280x720 but delivered 1280x704.** libcamera's IPU3
+   pipeline clamps the output height to `alignDown(sensor_height - 1, 32) =
+   704` during `validate()`, but the advertised stream formats still said 720.
+   Chromium requested the advertised 1280x720, received a 1280x704 frame, and
+   its strict buffer-size `CHECK` crashed the video capture service (SIGTRAP).
+   The plugin now validates every advertised size against the camera
+   configuration, so it reports exactly what it delivers (1280x704, 832x480,
+   768x600, ...).
 
 **Verified working:** both sensors probe, `Connected 2 cameras` at boot, the
 OV9734 is a registered libcamera camera, streams at ~30 fps (1280x704 NV12),
 and the raw sensor data confirms a real image (this user confirmed "it looks
-perfect").
+perfect"). The camera also works end-to-end in Chromium (webcamtests.com)
+after the pipewire plugin + Chromium flag fixes: 1280x704 @ 30 FPS, ~0.9 MP,
+real colour video.
 
 ---
 
@@ -112,9 +150,16 @@ perfect").
   or not loaded; verify with `lsmod | grep ipu_bridge` and the boot log.
 - **"failed to find sensor: -121"** → the reset/clock probe fixes aren't applied
   (or the camera module needs the 50 ms settle delay).
-- **Camera works in `cam` but not the browser** → something else holds the media
-  device (`sudo dmesg` / wireplumber log for "Device or resource busy"); close
-  qcam/cam first.
+- **Camera works in `cam` but not the browser** → (1) confirm
+  `--enable-features=WebRtcPipeWireCamera` is set (and merged into any existing
+  `--enable-features` line) in `~/.config/chromium-flags.conf`; (2) confirm the
+  patched pipewire plugin is installed and the node enumerates a framerate
+  (`pw-cli enum-params <node-id> Spa:Enum:ParamId:EnumFormat`); (3) close
+  qcam/cam first — only one consumer at a time.
+- **Browser finds the camera but shows black / crashes the video service** → the
+  pipewire plugin is advertising sizes libcamera doesn't actually deliver.
+  Rebuild with `build-pipewire-plugin.sh` and check the advertised sizes are
+  64x4-aligned (`pw-cli enum-params ... | grep Rectangle`).
 - **Image is very dark** → the AGC boosts exposure/gain; check with the lights
   on. (On one machine the frame only brightened after a clean driver reload:
   `echo i2c-OVTI9734:00 > /sys/bus/i2c/drivers/ov9734/unbind` then
