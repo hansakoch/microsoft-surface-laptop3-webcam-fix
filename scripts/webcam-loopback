@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Expose the OV9734 (pipewire/libcamera) webcam as a V4L2 device so apps that
+# only understand V4L2 (e.g. Omarchy's screen recorder) can use it.
+#
+#   webcam-loopback start   - create /dev/video20 "OV9734 Webcam" and start feeding it
+#   webcam-loopback stop    - stop feeding (frees the camera for Meet/browser)
+#   webcam-loopback status  - show whether the bridge is running
+#
+# Note: only ONE consumer can use the camera at a time. While this bridge runs,
+# the camera is busy and won't be available to Google Meet / Chromium.
+
+set -u
+DEVICE=/dev/video20
+PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/webcam-loopback.pid"
+LOGFILE="${XDG_RUNTIME_DIR:-/tmp}/webcam-loopback.log"
+
+start_bridge() {
+    # Load the loopback module (options come from /etc/modprobe.d/v4l2loopback.conf)
+    if [[ ! -e $DEVICE ]]; then
+        sudo modprobe v4l2loopback
+        sleep 1
+    fi
+
+    # Feed the pipewire camera into the loopback device (1280x720 YUY2).
+    gst-launch-1.0 -q \
+        pipewiresrc target-object="libcamera_input.__SB_.PCI0.I2C2.CAMF" \
+        ! "video/x-raw,format=NV12,width=1280,height=704" \
+        ! videoscale ! videoconvert \
+        ! "video/x-raw,format=YUY2,width=1280,height=720" \
+        ! v4l2sink device="$DEVICE" >"$LOGFILE" 2>&1 &
+    echo $! >"$PIDFILE"
+
+    # Give it a moment, then confirm the stream is actually flowing.
+    sleep 3
+    if kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        echo "Webcam loopback running on $DEVICE (OV9734 Webcam)."
+        echo "Use: omarchy capture screenrecording-with-webcam"
+    else
+        echo "Failed to start the bridge. Log: $LOGFILE" >&2
+        rm -f "$PIDFILE"
+        return 1
+    fi
+}
+
+stop_bridge() {
+    if [[ -f $PIDFILE ]]; then
+        kill "$(cat "$PIDFILE")" 2>/dev/null
+        rm -f "$PIDFILE"
+        echo "Webcam loopback stopped."
+    else
+        echo "Webcam loopback is not running."
+    fi
+}
+
+case "${1:-}" in
+    start) start_bridge ;;
+    stop)  stop_bridge ;;
+    status)
+        if [[ -f $PIDFILE ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+            echo "running (pid $(cat "$PIDFILE")) on $DEVICE"
+        else
+            echo "not running"
+        fi
+        ;;
+    *) echo "usage: $0 start|stop|status" >&2; exit 1 ;;
+esac

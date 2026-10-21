@@ -54,6 +54,26 @@ dmesg | grep -E "OVTI9734|Connected 2 cameras"
 4. Enables Chromium's pipewire camera backend
    (`--enable-features=WebRtcPipeWireCamera` in `~/.config/chromium-flags.conf`).
 
+## Screen recording with webcam
+
+The camera is a libcamera/pipewire camera, not a V4L2 device — so tools that
+only speak V4L2 (like Omarchy's screen recorder) can't see it directly. The
+installer sets up a **v4l2loopback** bridge for that:
+
+```sh
+# 1. Expose the camera as a V4L2 device (do this before recording)
+webcam-loopback start
+
+# 2. Record — pick the "OV9734 Webcam" device
+omarchy capture screenrecording-with-webcam
+
+# 3. When done, free the camera again (needed to use Meet/browser)
+webcam-loopback stop
+```
+
+Only one consumer can use the camera at a time — stop the bridge before
+using Google Meet or the browser.
+
 ## Troubleshooting
 
 - **Black / dark image** → turn on room lights; the sensor is fine.
@@ -62,6 +82,8 @@ dmesg | grep -E "OVTI9734|Connected 2 cameras"
   `WebRtcPipeWireCamera`.
 - **IR camera (OV7251) not listed** → kernel-probed but not a libcamera camera;
   not needed for normal webcam use.
+- **Screen recorder shows two cameras, neither works** → those are the raw IPU3
+  V4L2 nodes. Run `webcam-loopback start` and pick "OV9734 Webcam" instead.
 
 ## Notes
 

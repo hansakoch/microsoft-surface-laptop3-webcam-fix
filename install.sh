@@ -16,7 +16,8 @@ say "Installing dependencies"
 sudo pacman -S --needed --noconfirm \
     base-devel git curl meson ninja zstd \
     linux-headers \
-    libcamera pipewire pipewire-libcamera
+    libcamera pipewire pipewire-libcamera \
+    v4l2loopback-dkms gst-plugins-good
 
 # ---------------------------------------------------------------------------
 # 2. Kernel modules (ipu-bridge + ov9734)
@@ -108,5 +109,18 @@ fi
 systemctl --user restart pipewire
 systemctl --user restart wireplumber
 
+# ---------------------------------------------------------------------------
+# 6. V4L2 loopback (lets V4L2-only apps like the screen recorder use the camera)
+# ---------------------------------------------------------------------------
+say "Setting up V4L2 loopback for screen recording"
+echo 'options v4l2loopback video_nr=20 card_label="OV9734 Webcam"' \
+    | sudo tee /etc/modprobe.d/v4l2loopback.conf
+echo 'SUBSYSTEM=="video4linux", KERNEL=="video20", GROUP="video", MODE="0660"' \
+    | sudo tee /etc/udev/rules.d/99-v4l2loopback-webcam.rules
+mkdir -p "$HOME/.local/bin"
+cp "$HERE/scripts/webcam-loopback" "$HOME/.local/bin/webcam-loopback"
+chmod +x "$HOME/.local/bin/webcam-loopback"
+
 say "Done. REBOOT now, then test at https://webcamtests.com"
 echo "Verify after reboot:  cam --list      # should list 'ov9734'"
+echo "Screen recording:     webcam-loopback start   # then use omarchy screenrecord"
