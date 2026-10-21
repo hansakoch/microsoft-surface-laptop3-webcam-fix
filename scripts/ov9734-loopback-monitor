@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Lazy bridge for the OV9734 webcam loopback (/dev/video20).
+#
+# Runs as a systemd user service. Keeps the gst pipewire->loopback bridge
+# running while Omarchy's screen-recorder-with-webcam flow is active, and
+# stops it otherwise — so Google Meet / Chromium can use the camera when the
+# recorder is not in use. No manual steps required.
+set -u
+
+DEVICE=/dev/video20
+BRIDGE_PID=""
+
+# True while any part of the Omarchy "record screen + webcam" flow is running:
+# the device picker, the main recorder (--with-webcam), or its mpv overlay.
+need_bridge() {
+    pgrep -f "screenrecording-with-webcam" >/dev/null 2>&1 && return 0
+    for pid in $(pgrep -f "omarchy-capture-screenrecording" 2>/dev/null); do
+        if tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q "with-webcam"; then
+            return 0
+        fi
+    done
+    pgrep -f "WebcamOverlay" >/dev/null 2>&1 && return 0
+    return 1
+}
+
+bridge_alive() {
+    [[ -n "${BRIDGE_PID:-}" ]] && kill -0 "$BRIDGE_PID" 2>/dev/null
+}
+
+start_bridge() {
+    bridge_alive && return 0
+    [[ -e "$DEVICE" ]] || return 0   # module not loaded; nothing we can do here
+
+    gst-launch-1.0 -q \
+        pipewiresrc target-object="libcamera_input.__SB_.PCI0.I2C2.CAMF" \
+        ! "video/x-raw,format=NV12,width=1280,height=704" \
+        ! videoscale ! videoconvert \
+        ! "video/x-raw,format=YUY2,width=1280,height=720" \
+        ! v4l2sink device="$DEVICE" >/dev/null 2>&1 &
+    BRIDGE_PID=$!
+}
+
+stop_bridge() {
+    if bridge_alive; then
+        kill "$BRIDGE_PID" 2>/dev/null
+        wait "$BRIDGE_PID" 2>/dev/null
+    fi
+    BRIDGE_PID=""
+}
+
+trap stop_bridge EXIT
+
+while true; do
+    if need_bridge; then
+        start_bridge
+    else
+        stop_bridge
+    fi
+    sleep 0.5
+done

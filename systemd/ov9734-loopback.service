@@ -1,0 +1,10 @@
+[Unit]
+Description=OV9734 webcam V4L2 loopback bridge (lazy)
+After=pipewire.service pipewire-pulse.service
+
+[Service]
+ExecStart=%h/.local/bin/ov9734-loopback-monitor
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

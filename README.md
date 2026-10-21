@@ -58,21 +58,20 @@ dmesg | grep -E "OVTI9734|Connected 2 cameras"
 
 The camera is a libcamera/pipewire camera, not a V4L2 device — so tools that
 only speak V4L2 (like Omarchy's screen recorder) can't see it directly. The
-installer sets up a **v4l2loopback** bridge for that:
+installer sets up a **v4l2loopback** bridge and a background service so it
+**just works, automatically**:
 
 ```sh
-# 1. Expose the camera as a V4L2 device (do this before recording)
-webcam-loopback start
-
-# 2. Record — pick the "OV9734 Webcam" device
-omarchy capture screenrecording-with-webcam
-
-# 3. When done, free the camera again (needed to use Meet/browser)
-webcam-loopback stop
+omarchy capture screenrecording-with-webcam   # pick "OV9734 Webcam"
 ```
 
-Only one consumer can use the camera at a time — stop the bridge before
-using Google Meet or the browser.
+The bridge starts itself when the recorder runs and stops when it's done,
+so Google Meet / Chromium still get the camera the rest of the time. The
+other two options in the picker (`Intel IPU3 CIO2`, `ipu3-imgu`) are internal
+hardware nodes — always pick **OV9734 Webcam**.
+
+For non-Omarchy V4L2 apps there's also a manual bridge:
+`webcam-loopback start` / `webcam-loopback stop`.
 
 ## Troubleshooting
 
@@ -82,8 +81,10 @@ using Google Meet or the browser.
   `WebRtcPipeWireCamera`.
 - **IR camera (OV7251) not listed** → kernel-probed but not a libcamera camera;
   not needed for normal webcam use.
-- **Screen recorder shows two cameras, neither works** → those are the raw IPU3
-  V4L2 nodes. Run `webcam-loopback start` and pick "OV9734 Webcam" instead.
+- **Screen recorder shows multiple cameras, webcam doesn't record** → pick
+  "OV9734 Webcam" (the others are raw IPU3 nodes). If the overlay is still
+  black, check `systemctl --user status ov9734-loopback` and that the camera is
+  free (close Meet first — one consumer at a time).
 
 ## Notes
 

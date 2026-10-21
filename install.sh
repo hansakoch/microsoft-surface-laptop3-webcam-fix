@@ -115,12 +115,18 @@ systemctl --user restart wireplumber
 say "Setting up V4L2 loopback for screen recording"
 echo 'options v4l2loopback video_nr=20 card_label="OV9734 Webcam"' \
     | sudo tee /etc/modprobe.d/v4l2loopback.conf
+echo 'v4l2loopback' | sudo tee /etc/modules-load.d/v4l2loopback.conf
 echo 'SUBSYSTEM=="video4linux", KERNEL=="video20", GROUP="video", MODE="0660"' \
     | sudo tee /etc/udev/rules.d/99-v4l2loopback-webcam.rules
-mkdir -p "$HOME/.local/bin"
+mkdir -p "$HOME/.local/bin" "$HOME/.config/systemd/user"
 cp "$HERE/scripts/webcam-loopback" "$HOME/.local/bin/webcam-loopback"
-chmod +x "$HOME/.local/bin/webcam-loopback"
+cp "$HERE/scripts/ov9734-loopback-monitor" "$HOME/.local/bin/ov9734-loopback-monitor"
+cp "$HERE/systemd/ov9734-loopback.service" "$HOME/.config/systemd/user/ov9734-loopback.service"
+chmod +x "$HOME/.local/bin/webcam-loopback" "$HOME/.local/bin/ov9734-loopback-monitor"
+systemctl --user daemon-reload
+systemctl --user enable --now ov9734-loopback.service
 
 say "Done. REBOOT now, then test at https://webcamtests.com"
 echo "Verify after reboot:  cam --list      # should list 'ov9734'"
-echo "Screen recording:     webcam-loopback start   # then use omarchy screenrecord"
+echo "Screen recording:     omarchy capture screenrecording-with-webcam -> pick 'OV9734 Webcam'"
+echo "                      (the bridge starts/stops automatically — no manual steps)"
