@@ -1,18 +1,38 @@
-# Surface Laptop 3 Webcam Fix
+# Microsoft Surface Laptop 3 Webcam Fix
 
-Fixes the **Surface Laptop 3 (model 1769)** front camera (OV9734 RGB, Intel
-IPU3 pipeline) on Linux / Arch-based distros (Omarchy, etc.).
+Fixes the front webcam on the **Microsoft Surface Laptop 3** (and other
+Microsoft Surface devices using the same Intel IPU3 front-camera module:
+**OV9734 RGB + OV7251 IR**) on Linux / Arch-based distros (Omarchy, EndeavourOS,
+Manjaro, etc.).
 
 ## Install
 
 ```sh
-git clone https://github.com/hansakoch/surface-laptop3-webcam-fix.git
-cd surface-laptop3-webcam-fix
+git clone https://github.com/hansakoch/microsoft-surface-laptop3-webcam-fix.git
+cd microsoft-surface-laptop3-webcam-fix
 ./install.sh
 sudo reboot
 ```
 
 After reboot, open https://webcamtests.com in Chromium and the camera works.
+
+## Compatible devices
+
+Confirmed working:
+
+- **Microsoft Surface Laptop 3, 13.5"** (model **1769**) — Intel Core
+
+The same hardware (OV9734 + OV7251 front camera on the Intel IPU3 pipeline) is
+used by other Microsoft Surface models, so this fix applies to them too:
+
+- Microsoft Surface Laptop 3, 15" (model 1872) — Intel
+- Microsoft Surface Laptop 4, 13.5" (Intel models)
+- Any laptop whose front camera is `OVTI9734` on IPU3 — check with:
+  `sudo dmesg | grep -i ovti9734` or `ls /sys/bus/i2c/devices | grep -i ovti`
+
+The kernel patches are generic (they add `OVTI9734` to the IPU3 bridge table
+and fix the ov9734 driver power-on), so they help every OV9734+IPU3 device,
+not just the Laptop 3.
 
 ## Verify
 
