@@ -1,9 +1,9 @@
-# Microsoft Surface Laptop 3 Webcam Fix
+# Microsoft Surface Laptop 3 Webcam + Touchscreen Fix
 
-Fixes the front webcam on the **Microsoft Surface Laptop 3** (and other
-Microsoft Surface devices using the same Intel IPU3 front-camera module:
-**OV9734 RGB + OV7251 IR**) on Linux / Arch-based distros (Omarchy, EndeavourOS,
-Manjaro, etc.).
+Fixes the front webcam and touchscreen on the **Microsoft Surface Laptop 3**
+(and other Microsoft Surface devices using the same Intel IPU3 front-camera
+module **OV9734 RGB + OV7251 IR**) on Linux / Arch-based distros (Omarchy,
+EndeavourOS, Manjaro, etc.).
 
 ## Install
 
@@ -14,7 +14,8 @@ cd microsoft-surface-laptop3-webcam-fix
 sudo reboot
 ```
 
-After reboot, open https://webcamtests.com in Chromium and the camera works.
+After reboot, the webcam works in Chromium/Chrome/Brave and the touchscreen
+works. Test the webcam at https://webcamtests.com.
 
 ## Compatible devices
 
@@ -37,8 +38,10 @@ not just the Laptop 3.
 ## Verify
 
 ```sh
-cam --list                        # should list: 1: 'ov9734'
+cam --list                        # webcam: should list 1: 'ov9734'
 dmesg | grep -E "OVTI9734|Connected 2 cameras"
+ls /dev/ipts                      # touchscreen: device nodes present
+pgrep -x iptsd                    # touchscreen: daemon running
 ```
 
 ## What the installer does
@@ -51,8 +54,19 @@ dmesg | grep -E "OVTI9734|Connected 2 cameras"
 3. Builds the **pipewire libcamera SPA plugin** with two fixes so Chromium can
    enumerate and stream the camera (framerate in `EnumFormat`, and advertising
    the *actually delivered* sizes — the IPU3 delivers 1280x704, not 1280x720).
-4. Enables Chromium's pipewire camera backend
-   (`--enable-features=WebRtcPipeWireCamera` in `~/.config/chromium-flags.conf`).
+4. Enables the pipewire camera backend in **Chromium, Chrome, and Brave**
+   (`--enable-features=WebRtcPipeWireCamera` in their flags configs).
+5. Installs **linux-surface** + **iptsd** and makes linux-surface the default
+   boot kernel — the Surface touchscreen (Intel Precise Touch) only works on
+   the surface kernel. Camera patches are built for both kernels.
+
+## Touchscreen
+
+The Surface Laptop 3 touchscreen uses **Intel Precise Touch (IPTS)** — raw
+touch data is processed in userspace by `iptsd`. This is not in the mainline
+kernel, so the installer installs the **linux-surface** kernel (which has the
+`ipts` driver), installs `iptsd` (auto-starts via udev), and sets linux-surface
+as the default boot entry. Nothing else to do — after the reboot it just works.
 
 ## Screen recording with webcam
 
@@ -77,8 +91,11 @@ For non-Omarchy V4L2 apps there's also a manual bridge:
 
 - **Black / dark image** → turn on room lights; the sensor is fine.
 - **Browser still says no camera** → close `cam`/`qcam` first (one consumer at
-  a time), then check `~/.config/chromium-flags.conf` has
-  `WebRtcPipeWireCamera`.
+  a time), then check the browser's flags config has `WebRtcPipeWireCamera`
+  (Chromium: `~/.config/chromium-flags.conf`, Chrome: `~/.config/chrome-flags.conf`,
+  Brave: `~/.config/brave-origin-flags.conf`). Fully restart the browser.
+- **Touchscreen not working** → confirm you booted linux-surface
+  (`uname -r` ends in `-surface`), and `pgrep -x iptsd` is running.
 - **IR camera (OV7251) not listed** → kernel-probed but not a libcamera camera;
   not needed for normal webcam use.
 - **Screen recorder shows multiple cameras, webcam doesn't record** → pick

@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Surface Laptop 3 (1769) OV9734 webcam fix — one-shot installer.
+# Surface Laptop 3 (1769) webcam + touchscreen fix — one-shot installer.
 # Run as your normal user (sudo is used for privileged steps), then reboot.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 KVER="$(uname -r)"
-KDIR="/usr/lib/modules/$KVER/build"
 
 say() { printf '\n\033[1;32m== %s ==\033[0m\n' "$*"; }
 
@@ -15,15 +14,15 @@ say() { printf '\n\033[1;32m== %s ==\033[0m\n' "$*"; }
 say "Installing dependencies"
 sudo pacman -S --needed --noconfirm \
     base-devel git curl meson ninja zstd \
-    linux-headers \
+    linux-headers linux-surface linux-surface-headers iptsd \
     libcamera pipewire pipewire-libcamera \
     v4l2loopback-dkms gst-plugins-good
 
 # ---------------------------------------------------------------------------
-# 2. Kernel modules (ipu-bridge + ov9734)
+# 2. Kernel modules (ipu-bridge + ov9734) — for the running kernel AND
+#    linux-surface (touchscreen needs surface; the camera needs both)
 # ---------------------------------------------------------------------------
-say "Building kernel modules for $KVER"
-[ -d "$KDIR" ] || { echo "No kernel headers for $KVER"; exit 1; }
+say "Building kernel modules"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -34,17 +33,24 @@ cd "$WORK"
 patch -p0 < "$HERE/patches/kernel/0001-ipu-bridge-add-ovti9734.patch"
 patch -p0 < "$HERE/patches/kernel/0002-ov9734-probe-fixes.patch"
 
-for m in ipu-bridge ov9734; do
-    mkdir -p "b/$m" && cp "$m.c" "b/$m/"
-    echo "obj-m := $m.o" > "b/$m/Kbuild"
-    make -C "$KDIR" M="$WORK/b/$m" modules
-done
+KERNELS=("$KVER")
+[ -d "/lib/modules/$KVER-surface" ] && KERNELS+=("$KVER-surface")
 
-sudo zstd -f -q -19 "b/ipu-bridge/ipu-bridge.ko" \
-    -o "/lib/modules/$KVER/kernel/drivers/media/pci/intel/ipu-bridge.ko.zst"
-sudo zstd -f -q -19 "b/ov9734/ov9734.ko" \
-    -o "/lib/modules/$KVER/kernel/drivers/media/i2c/ov9734.ko.zst"
-sudo depmod -a
+for KVER in "${KERNELS[@]}"; do
+    KDIR="/usr/lib/modules/$KVER/build"
+    [ -d "$KDIR" ] || { echo "skip $KVER (no headers)"; continue; }
+    echo "Building for $KVER"
+    for m in ipu-bridge ov9734; do
+        rm -rf "b/$m"; mkdir -p "b/$m" && cp "$m.c" "b/$m/"
+        echo "obj-m := $m.o" > "b/$m/Kbuild"
+        make -C "$KDIR" M="$WORK/b/$m" modules
+    done
+    sudo zstd -f -q -19 "b/ipu-bridge/ipu-bridge.ko" \
+        -o "/lib/modules/$KVER/kernel/drivers/media/pci/intel/ipu-bridge.ko.zst"
+    sudo zstd -f -q -19 "b/ov9734/ov9734.ko" \
+        -o "/lib/modules/$KVER/kernel/drivers/media/i2c/ov9734.ko.zst"
+    sudo depmod -a "$KVER"
+done
 
 # ---------------------------------------------------------------------------
 # 3. libcamera (OV9734 sensor helper + IPU3 fixes) -> /usr/local
@@ -92,19 +98,23 @@ sudo cp build-plugin/spa/plugins/libcamera/libspa-libcamera.so \
     /usr/lib/spa-0.2/libcamera/libspa-libcamera.so
 
 # ---------------------------------------------------------------------------
-# 5. Chromium: enable its pipewire camera backend
+# 5. Browsers: enable the pipewire camera backend (Chromium, Chrome, Brave)
 # ---------------------------------------------------------------------------
-say "Configuring Chromium"
-CONF="$HOME/.config/chromium-flags.conf"
-mkdir -p "$(dirname "$CONF")"
-touch "$CONF"
-if grep -q '^--enable-features=.*WebRtcPipeWireCamera' "$CONF"; then
-    :
-elif grep -q '^--enable-features=' "$CONF"; then
-    sed -i 's/^--enable-features=\(.*\)$/--enable-features=\1,WebRtcPipeWireCamera/' "$CONF"
-else
-    echo '--enable-features=WebRtcPipeWireCamera' >> "$CONF"
-fi
+say "Configuring browsers"
+for CONF in \
+    "$HOME/.config/chromium-flags.conf" \
+    "$HOME/.config/chrome-flags.conf" \
+    "$HOME/.config/brave-origin-flags.conf"; do
+    mkdir -p "$(dirname "$CONF")"
+    touch "$CONF"
+    if grep -q '^--enable-features=.*WebRtcPipeWireCamera' "$CONF"; then
+        :
+    elif grep -q '^--enable-features=' "$CONF"; then
+        sed -i 's/^--enable-features=\(.*\)$/--enable-features=\1,WebRtcPipeWireCamera/' "$CONF"
+    else
+        echo '--enable-features=WebRtcPipeWireCamera' >> "$CONF"
+    fi
+done
 
 systemctl --user restart pipewire
 systemctl --user restart wireplumber
@@ -126,7 +136,30 @@ chmod +x "$HOME/.local/bin/webcam-loopback" "$HOME/.local/bin/ov9734-loopback-mo
 systemctl --user daemon-reload
 systemctl --user enable --now ov9734-loopback.service
 
-say "Done. REBOOT now, then test at https://webcamtests.com"
-echo "Verify after reboot:  cam --list      # should list 'ov9734'"
-echo "Screen recording:     omarchy capture screenrecording-with-webcam -> pick 'OV9734 Webcam'"
-echo "                      (the bridge starts/stops automatically — no manual steps)"
+# ---------------------------------------------------------------------------
+# 7. Touchscreen: boot the linux-surface kernel (it has the IPTS driver)
+# ---------------------------------------------------------------------------
+say "Setting linux-surface as the default boot kernel (touchscreen)"
+if [ -f /boot/limine.conf ] || [ -f /etc/default/limine ]; then
+    if grep -q '^BOOT_ORDER=' /etc/default/limine 2>/dev/null; then
+        sudo sed -i 's/^BOOT_ORDER=.*/BOOT_ORDER="linux-surface, linux-t2, linux-omarchy, linux-omarchy-*, *, *fallback, Snapshots"/' /etc/default/limine
+    else
+        echo 'BOOT_ORDER="linux-surface, linux-t2, linux-omarchy, linux-omarchy-*, *, *fallback, Snapshots"' \
+            | sudo tee -a /etc/default/limine
+    fi
+    sudo limine-update >/dev/null 2>&1 || true
+    # With that BOOT_ORDER, linux-surface is the first kernel entry (entry 2,
+    # after the OS submenu header). Show the menu for 5s as a fallback.
+    sudo sed -i 's/^default_entry:.*/default_entry: 2/' /boot/limine.conf
+    sudo sed -i 's/^#timeout:.*/timeout: 5/' /boot/limine.conf
+    sudo sync
+else
+    echo "NOTE: limine not detected — select the linux-surface kernel in your"
+    echo "      bootloader menu to enable the touchscreen."
+fi
+
+say "Done. REBOOT now"
+echo "After reboot:"
+echo "  - Touchscreen: works (linux-surface kernel + iptsd)"
+echo "  - Webcam:      works in Chromium/Chrome/Brave (cam --list shows 'ov9734')"
+echo "  - Recording:   omarchy capture screenrecording-with-webcam -> 'OV9734 Webcam'"
