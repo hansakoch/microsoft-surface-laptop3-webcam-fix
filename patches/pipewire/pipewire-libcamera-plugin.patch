@@ -1,8 +1,43 @@
-diff --git a/spa/plugins/libcamera/libcamera-source.cpp b/spa/plugins/libcamera/libcamera-source.cpp
-index a9095d4..61ea035 100644
 --- a/spa/plugins/libcamera/libcamera-source.cpp
 +++ b/spa/plugins/libcamera/libcamera-source.cpp
-@@ -596,6 +596,29 @@ next_fmt:
+@@ -568,19 +568,35 @@
+ 
+ 	if (!sizes.empty() && port->size_index <= sizes.size()) {
+ 		if (port->size_index == 0) {
+-			Size wanted = Size(640, 480);
++			/* Prefer the native IPU3 OV9734 mode; Chromium often picks the
++			 * first/cheapest EnumFormat and was locking Meet at 320x240. */
++			Size wanted = Size(1280, 704);
+ 			int best = std::numeric_limits<int>::max();
++			bool found = false;
+ 
+ 			for (const auto& test : sizes) {
++				if (test.width < 640 || test.height < 360)
++					continue;
+ 				int score = score_size(wanted, test);
+ 				if (score < best) {
+ 					best = score;
+ 					frameSize = test;
++					found = true;
+ 				}
+ 			}
++			if (!found) {
++				port->size_index = 0;
++				port->fmt_index++;
++				goto next_fmt;
++			}
+ 		}
+ 		else {
+ 			frameSize = sizes[port->size_index - 1];
++			/* Skip postage-stamp modes so WebRTC cannot negotiate them. */
++			if (frameSize.width < 640 || frameSize.height < 360) {
++				port->size_index++;
++				goto next_fmt;
++			}
+ 		}
+ 	} else if (port->size_index < 1) {
+ 		sizeRange = formats.range(format);
+@@ -596,6 +612,33 @@
  	}
  	port->size_index++;
  
@@ -29,10 +64,14 @@ index a9095d4..61ea035 100644
 +		impl->config->validate();
 +	}
 +
++	if (sizeRange.hStep == 0 && sizeRange.vStep == 0 &&
++	    (frameSize.width < 640 || frameSize.height < 360))
++		goto next_fmt;
++
  	spa_pod_builder_init(&b, buffer, sizeof(buffer));
  	spa_pod_builder_push_object(&b, &f[0], SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat);
  	spa_pod_builder_add(&b,
-@@ -634,6 +657,14 @@ next_fmt:
+@@ -634,6 +677,14 @@
  		spa_pod_builder_rectangle(&b, frameSize.width, frameSize.height);
  	}
  

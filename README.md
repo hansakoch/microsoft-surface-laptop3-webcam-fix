@@ -90,11 +90,13 @@ For non-Omarchy V4L2 apps there's also a manual bridge:
 ## Troubleshooting
 
 - **Black / dark image** → turn on room lights; the sensor is fine.
-- **Blurry / soft image in Google Meet** → Chromium's PipeWire camera path often
-  locks the OV9734 at **320×240** (check with `pw-cli e <camera-node> Format`).
-  In Meet: Settings → Video → set send resolution to **High definition**, then
-  toggle the camera off/on. Free CPU helps — under heavy load Meet stays on the
-  tiny mode. Confirm with: `pw-dump | grep -A2 '"Format"'` while Meet is open.
+- **Blurry / soft image in Google Meet** → Chromium's PipeWire camera path used
+  to lock the OV9734 at **320×240**. The PipeWire plugin now prefers **1280×704**
+  and no longer advertises modes below 640×360. After updating the plugin,
+  restart PipeWire (`systemctl --user restart pipewire wireplumber`) and fully
+  reload Meet (or toggle the camera off/on). Confirm the active size with
+  `pw-cli ls Node` → `pw-cli e <id> Format` (should be 1280×704 or ≥640×360).
+  In Meet: Settings → Video → send resolution **High definition**.
 - **Fans spin / high CPU after install** → an older `ov9734-loopback-monitor`
   used `pgrep -f`, which matches itself and (with Chromium's huge argv) can burn
   ~40% CPU forever. Update `scripts/ov9734-loopback-monitor`, reinstall or copy
