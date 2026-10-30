@@ -10,16 +10,25 @@ set -u
 DEVICE=/dev/video20
 BRIDGE_PID=""
 
-# True while any part of the Omarchy "record screen + webcam" flow is running:
-# the device picker, the main recorder (--with-webcam), or its mpv overlay.
+# Avoid `pgrep -f`: on this machine each full cmdline scan costs ~150ms because
+# Chromium argv is huge. Reading /proc/*/comm is cheap; only open cmdline for
+# processes that could actually be the recorder/overlay.
 need_bridge() {
-    pgrep -f "screenrecording-with-webcam" >/dev/null 2>&1 && return 0
-    for pid in $(pgrep -f "omarchy-capture-screenrecording" 2>/dev/null); do
-        if tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q "with-webcam"; then
-            return 0
-        fi
+    local pid comm cmd
+    for pid in /proc/[0-9]*; do
+        [[ -r $pid/comm ]] || continue
+        read -r comm < "$pid/comm" || continue
+        case $comm in
+            bash|mpv|gpu-screen-recorder|wf-recorder|wl-screenrec|ffmpeg|gst-launch-1.0)
+                cmd=$(tr '\0' ' ' < "$pid/cmdline" 2>/dev/null) || continue
+                case $cmd in
+                    *screenrecording-with-webcam*|*WebcamOverlay*|*--with-webcam*)
+                        return 0
+                        ;;
+                esac
+                ;;
+        esac
     done
-    pgrep -f "WebcamOverlay" >/dev/null 2>&1 && return 0
     return 1
 }
 
@@ -56,5 +65,5 @@ while true; do
     else
         stop_bridge
     fi
-    sleep 0.5
+    sleep 5
 done

@@ -90,12 +90,23 @@ For non-Omarchy V4L2 apps there's also a manual bridge:
 ## Troubleshooting
 
 - **Black / dark image** → turn on room lights; the sensor is fine.
+- **Blurry / soft image in Google Meet** → Chromium's PipeWire camera path often
+  locks the OV9734 at **320×240** (check with `pw-cli e <camera-node> Format`).
+  In Meet: Settings → Video → set send resolution to **High definition**, then
+  toggle the camera off/on. Free CPU helps — under heavy load Meet stays on the
+  tiny mode. Confirm with: `pw-dump | grep -A2 '"Format"'` while Meet is open.
+- **Fans spin / high CPU after install** → an older `ov9734-loopback-monitor`
+  used `pgrep -f`, which matches itself and (with Chromium's huge argv) can burn
+  ~40% CPU forever. Update `scripts/ov9734-loopback-monitor`, reinstall or copy
+  it to `~/.local/bin/`, then `systemctl --user restart ov9734-loopback`.
 - **Browser still says no camera** → close `cam`/`qcam` first (one consumer at
   a time), then check the browser's flags config has `WebRtcPipeWireCamera`
   (Chromium: `~/.config/chromium-flags.conf`, Chrome: `~/.config/chrome-flags.conf`,
   Brave: `~/.config/brave-origin-flags.conf`). Fully restart the browser.
 - **Touchscreen not working** → confirm you booted linux-surface
-  (`uname -r` ends in `-surface`), and `pgrep -x iptsd` is running.
+  (`uname -r` ends in `-surface`), and `pgrep -x iptsd` is running. If iptsd
+  fails with `The screen size is 0!`, the kernel `ipts` touchscreen may still
+  work in Hyprland — check `hyprctl devices` for `ipts-…-touchscreen`.
 - **IR camera (OV7251) not listed** → kernel-probed but not a libcamera camera;
   not needed for normal webcam use.
 - **Screen recorder shows multiple cameras, webcam doesn't record** → pick
