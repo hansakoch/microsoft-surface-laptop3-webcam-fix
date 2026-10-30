@@ -12,7 +12,7 @@
 +			bool found = false;
  
  			for (const auto& test : sizes) {
-+				if (test.width < 640 || test.height < 360)
++				if (test.width < 960 || test.height < 540)
 +					continue;
  				int score = score_size(wanted, test);
  				if (score < best) {
@@ -30,7 +30,7 @@
  		else {
  			frameSize = sizes[port->size_index - 1];
 +			/* Skip postage-stamp modes so WebRTC cannot negotiate them. */
-+			if (frameSize.width < 640 || frameSize.height < 360) {
++			if (frameSize.width < 960 || frameSize.height < 540) {
 +				port->size_index++;
 +				goto next_fmt;
 +			}
@@ -65,7 +65,7 @@
 +	}
 +
 +	if (sizeRange.hStep == 0 && sizeRange.vStep == 0 &&
-+	    (frameSize.width < 640 || frameSize.height < 360))
++	    (frameSize.width < 960 || frameSize.height < 540))
 +		goto next_fmt;
 +
  	spa_pod_builder_init(&b, buffer, sizeof(buffer));
