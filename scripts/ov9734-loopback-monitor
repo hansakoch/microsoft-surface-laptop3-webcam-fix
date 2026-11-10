@@ -19,7 +19,7 @@ need_bridge() {
         [[ -r $pid/comm ]] || continue
         read -r comm < "$pid/comm" || continue
         case $comm in
-            bash|mpv|gpu-screen-recorder|wf-recorder|wl-screenrec|ffmpeg|gst-launch-1.0)
+            bash|mpv|gpu-screen-recorder|wf-recorder|wl-screenrec|ffmpeg|gst-launch-1.0|omarchy-capture)
                 cmd=$(tr '\0' ' ' < "$pid/cmdline" 2>/dev/null) || continue
                 case $cmd in
                     *screenrecording-with-webcam*|*WebcamOverlay*|*--with-webcam*)
@@ -65,5 +65,5 @@ while true; do
     else
         stop_bridge
     fi
-    sleep 5
+    sleep 2
 done
