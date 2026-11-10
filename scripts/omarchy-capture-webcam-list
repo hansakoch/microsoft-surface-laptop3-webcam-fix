@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# omarchy:summary=List webcam devices that support video capture
+# omarchy:hidden=true
+#
+# Patched (surface-laptop3-webcam-fix): skip the raw IPU3 pipeline nodes
+# (Intel IPU3 CIO2 / ipu3-imgu). They need libcamera to configure the media
+# pipeline first; opening them directly gives black frames and can wedge the
+# camera ("Device or resource busy" loops). The usable camera is the
+# v4l2loopback device fed by webcam-loopback (/dev/video20 "OV9734 Webcam").
+
+capture_capable() {
+  local device="$1"
+
+  v4l2-ctl --device "$device" --info 2>/dev/null | awk '
+    /^[[:space:]]*Device Caps[[:space:]]*:/ { inspect = 1; next }
+    inspect && /^[[:space:]]*Video Capture/ { found = 1 }
+    END { exit !found }
+  '
+}
+
+raw_pipeline_node() {
+  local name="${1,,}"
+  [[ $name == *ipu3* || $name == *cio2* ]]
+}
+
+name=""
+emitted=0
+
+while IFS= read -r line; do
+  if [[ -n $line && $line != [[:space:]]* ]]; then
+    name="$line"
+    emitted=0
+  elif (( ! emitted )); then
+    device="${line#"${line%%[![:space:]]*}"}"
+
+    if [[ $device == /dev/video* ]] && ! raw_pipeline_node "$name" && capture_capable "$device"; then
+      emitted=1
+      printf '%s  %s\n' "$device" "$name"
+    fi
+  fi
+done < <(v4l2-ctl --list-devices 2>/dev/null)
+
+exit 0

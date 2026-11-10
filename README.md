@@ -81,8 +81,10 @@ omarchy capture screenrecording-with-webcam   # pick "OV9734 Webcam"
 
 The bridge starts itself when the recorder runs and stops when it's done,
 so Google Meet / Chromium still get the camera the rest of the time. The
-other two options in the picker (`Intel IPU3 CIO2`, `ipu3-imgu`) are internal
-hardware nodes — always pick **OV9734 Webcam**.
+installer also patches `omarchy-capture-webcam-list` so the two raw hardware
+nodes (`Intel IPU3 CIO2`, `ipu3-imgu`) are hidden from the picker — picking
+one of those gives a black webcam and can wedge the camera pipeline — so the
+picker only ever offers **OV9734 Webcam**.
 
 For non-Omarchy V4L2 apps there's also a manual bridge:
 `webcam-loopback start` / `webcam-loopback stop`.
@@ -110,10 +112,12 @@ For non-Omarchy V4L2 apps there's also a manual bridge:
   work in Hyprland — check `hyprctl devices` for `ipts-…-touchscreen`.
 - **IR camera (OV7251) not listed** → kernel-probed but not a libcamera camera;
   not needed for normal webcam use.
-- **Screen recorder shows multiple cameras, webcam doesn't record** → pick
-  "OV9734 Webcam" (the others are raw IPU3 nodes). If the overlay is still
-  black, check `systemctl --user status ov9734-loopback` and that the camera is
-  free (close Meet first — one consumer at a time).
+- **Screen recorder shows multiple cameras, webcam doesn't record** → the
+  installer patches the picker to hide the raw IPU3 nodes; if you still see
+  them, re-run the installer (or copy `scripts/omarchy-capture-webcam-list`
+  over `/usr/bin/omarchy-capture-webcam-list`). Always pick "OV9734 Webcam".
+  If the overlay is black, check `systemctl --user status ov9734-loopback` and
+  that the camera is free (close Meet first — one consumer at a time).
 
 ## Notes
 

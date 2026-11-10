@@ -137,6 +137,21 @@ systemctl --user daemon-reload
 systemctl --user enable --now ov9734-loopback.service
 
 # ---------------------------------------------------------------------------
+# 6b. Hide the raw IPU3 nodes from Omarchy's webcam picker
+#     (video0/video6 only work through libcamera; opening them directly gives
+#     black frames and can wedge the camera pipeline with
+#     "Device or resource busy" link errors that burn CPU)
+# ---------------------------------------------------------------------------
+say "Patching omarchy-capture-webcam-list"
+if [ -f /usr/bin/omarchy-capture-webcam-list ]; then
+    sudo cp -n /usr/bin/omarchy-capture-webcam-list \
+        /usr/bin/omarchy-capture-webcam-list.orig || true
+    sudo cp "$HERE/scripts/omarchy-capture-webcam-list" \
+        /usr/bin/omarchy-capture-webcam-list
+    sudo chmod 755 /usr/bin/omarchy-capture-webcam-list || true
+fi
+
+# ---------------------------------------------------------------------------
 # 7. Touchscreen: boot the linux-surface kernel (it has the IPTS driver)
 # ---------------------------------------------------------------------------
 say "Setting linux-surface as the default boot kernel (touchscreen)"
